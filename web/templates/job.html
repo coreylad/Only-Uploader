@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %} – Job {{ job_id }}{% endblock %}
+{% block content %}
+<h1>Job Log <span class="mono muted">{{ job_id }}</span></h1>
+
+<div id="status-bar" class="alert {% if job.done %}{% if job.returncode == 0 %}success{% else %}error{% endif %}{% else %}running{% endif %}">
+  {% if job.done %}
+    {% if job.returncode == 0 %}
+      ✅ Job finished successfully.
+    {% else %}
+      ❌ Job exited with code {{ job.returncode }}.
+    {% endif %}
+  {% else %}
+    ⏳ Job is running…
+  {% endif %}
+</div>
+
+<pre id="log-output" class="log-box">{% for line in job.lines %}{{ line }}
+{% endfor %}</pre>
+
+<div class="form-actions">
+  <a href="{{ url_for('index') }}" class="btn secondary">← Back to Dashboard</a>
+  {% if not job.done %}
+  <button id="auto-scroll-btn" class="btn secondary active" onclick="toggleAutoScroll()">Auto-scroll: ON</button>
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js" crossorigin="anonymous"></script>
+<script>
+(function () {
+  var jobId = "{{ job_id }}";
+  var done = {{ 'true' if job.done else 'false' }};
+  if (done) return;
+
+  var logBox = document.getElementById("log-output");
+  var statusBar = document.getElementById("status-bar");
+  var autoScroll = true;
+
+  var socket = io();
+
+  socket.on("log_line", function (data) {
+    if (data.job_id !== jobId) return;
+    logBox.textContent += data.line + "\n";
+    if (autoScroll) logBox.scrollTop = logBox.scrollHeight;
+  });
+
+  socket.on("job_done", function (data) {
+    if (data.job_id !== jobId) return;
+    statusBar.className = "alert " + (data.returncode === 0 ? "success" : "error");
+    statusBar.textContent = data.returncode === 0
+      ? "✅ Job finished successfully."
+      : "❌ Job exited with code " + data.returncode + ".";
+  });
+
+  window.toggleAutoScroll = function () {
+    autoScroll = !autoScroll;
+    var btn = document.getElementById("auto-scroll-btn");
+    btn.textContent = "Auto-scroll: " + (autoScroll ? "ON" : "OFF");
+    btn.classList.toggle("active", autoScroll);
+  };
+})();
+</script>
+{% endblock %}

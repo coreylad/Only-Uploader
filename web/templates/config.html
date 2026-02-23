@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %} – Config Editor{% endblock %}
+{% block content %}
+<h1>⚙️ Config Editor</h1>
+<p class="subtitle">Edit <code>data/config.py</code> directly. Changes are validated for Python syntax before saving.</p>
+
+{% if saved %}
+  <div class="alert success">✅ Configuration saved successfully.</div>
+{% endif %}
+{% if error %}
+  <div class="alert error">❌ Syntax error – config was <strong>not</strong> saved:<br><code>{{ error }}</code></div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('config_post') }}">
+  <div class="form-group">
+    <label for="config_text">config.py</label>
+    <textarea id="config_text" name="config_text" rows="40" class="code-editor" spellcheck="false">{{ config_text }}</textarea>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn primary">Save Config</button>
+    <a href="{{ url_for('index') }}" class="btn secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
