@@ -40,32 +40,153 @@ A simple tool to take the work out of uploading.
   - Rebase
 
 ## **Setup:**
-   - **REQUIRES AT LEAST PYTHON 3.12 AND PIP3**
-   - Needs [mono](https://www.mono-project.com/) on linux systems for BDInfo
-   - Also needs MediaInfo and ffmpeg installed on your system
-      - On Windows systems, ffmpeg must be added to PATH (https://windowsloop.com/install-ffmpeg-windows-10/)
-      - On linux systems, get it from your favorite package manager
-   - Clone the repo to your system `git clone https://github.com/edge20200/Only-Uploader.git`
-   - Copy and Rename `data/example-config.py` to `data/config.py`
-   - Edit `config.py` to use your information (more detailed information in the [wiki](https://github.com/edge20200/Only-Uploader/wiki))
-      - tmdb_api (v3) key can be obtained from https://developers.themoviedb.org/3/getting-started/introduction
-      - image host api keys can be obtained from their respective sites
-   - Install necessary python modules `pip3 install --user -U -r requirements.txt`
-     
-   
 
-   **Additional Resources are found in the [wiki](https://github.com/edge20200/Only-Uploader/wiki)**
-   
-   Feel free to contact me if you need help, I'm not that hard to find.
+### Prerequisites
+
+**Python 3.12 or newer is required.** Verify your version with:
+```bash
+python3 --version
+```
+
+You will also need **Git**, **MediaInfo**, **ffmpeg**, and (on Linux) **mono** installed before running the tool.
+
+#### Linux (Debian/Ubuntu)
+```bash
+sudo apt-get update
+sudo apt-get install -y python3 python3-pip python3-venv git ffmpeg mediainfo mono-complete
+```
+
+#### Linux (Fedora/RHEL/CentOS)
+```bash
+sudo dnf install -y python3 python3-pip git ffmpeg mediainfo mono-complete
+```
+
+#### macOS (Homebrew)
+```bash
+brew install python git ffmpeg mediainfo
+# mono is not required on macOS
+```
+
+#### Windows
+1. Install **Python 3.12+** from https://www.python.org/downloads/ — check "Add Python to PATH" during setup.
+2. Install **Git** from https://git-scm.com/download/win.
+3. Install **MediaInfo CLI** from https://mediaarea.net/en/MediaInfo/Download/Windows.
+4. Install **ffmpeg** and add it to your PATH: https://windowsloop.com/install-ffmpeg-windows-10/
+
+---
+
+### Installation Steps
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/coreylad/Only-Uploader.git
+   cd Only-Uploader
+   ```
+
+2. **Create and activate a virtual environment** *(recommended)*:
+   ```bash
+   # Linux / macOS
+   python3 -m venv venv
+   source venv/bin/activate
+
+   # Windows (Command Prompt)
+   python -m venv venv
+   venv\Scripts\activate.bat
+
+   # Windows (PowerShell)
+   python -m venv venv
+   venv\Scripts\Activate.ps1
+   ```
+
+3. **Install Python dependencies:**
+   ```bash
+   pip install -U -r requirements.txt
+   ```
+
+4. **Create your config file:**
+
+   Linux / macOS:
+   ```bash
+   cp data/example-config.py data/config.py
+   ```
+   Windows (Command Prompt):
+   ```bat
+   copy data\example-config.py data\config.py
+   ```
+
+5. **Edit `data/config.py`** and fill in your API keys and settings:
+   - `tmdb_api` — create a free account and request a v3 API key at https://developers.themoviedb.org/3/getting-started/introduction
+   - Tracker `api_key` / `announce_url` values — obtain from each tracker's settings page
+   - Image host API keys — obtain from each host's settings page
+   - Torrent client connection details (qBittorrent, rtorrent, Deluge, or watch folder)
+
+   > More detailed config documentation is in the [wiki](https://github.com/coreylad/Only-Uploader/wiki).
+
+---
+
+### Web Panel Setup
+
+Only-Uploader includes a browser-based web panel for configuring settings and triggering uploads without using the command line.
+
+**Start the web panel:**
+```bash
+python3 web/app.py
+```
+Then open **http://localhost:5000** in your browser.
+
+To bind to a different host or port, set the environment variables `WEBUI_HOST` and `WEBUI_PORT` before starting:
+```bash
+WEBUI_HOST=0.0.0.0 WEBUI_PORT=8080 python3 web/app.py
+```
+
+---
+
+**Additional Resources are found in the [wiki](https://github.com/coreylad/Only-Uploader/wiki)**
+
+Feel free to contact me if you need help, I'm not that hard to find.
 
 ## **Updating:**
-  - To update first navigate into the Upload-Assistant directory: `cd Only-Uploader`
-  - Run a `git pull` to grab latest updates
-  - Run `python3 -m pip install --user -U -r requirements.txt` to ensure dependencies are up to date
+  1. Navigate into the Only-Uploader directory: `cd Only-Uploader`
+  2. Pull the latest changes: `git pull`
+  3. Re-activate your virtual environment if you created one (see step 2 above).
+  4. Update Python dependencies:
+     ```bash
+     pip install -U -r requirements.txt
+     ```
+
 ## **CLI Usage:**
-  
-  `python3 upload.py /downloads/path/to/content --args`
-  
-  Args are OPTIONAL, for a list of acceptable args, pass `--help`
+
+```bash
+python3 upload.py /downloads/path/to/content [--args]
+```
+
+Args are OPTIONAL. For a full list of available arguments, run:
+```bash
+python3 upload.py --help
+```
+
 ## **Docker Usage:**
-  Visit our wonderful [docker usage wiki page](https://github.com/edge20200/Only-Uploader/wiki/Docker)
+
+Only-Uploader ships with a `Dockerfile` and `docker-compose.yml` for a fully containerised setup.
+
+### Quick start (web panel)
+```bash
+# 1. Copy and edit the config
+cp data/example-config.py data/config.py
+# (edit data/config.py with your API keys)
+
+# 2. Start the container
+docker compose up -d
+
+# 3. Open the web panel
+#    http://localhost:5000
+```
+
+The `docker-compose.yml` mounts `data/config.py` automatically. Uncomment the media volume line in the file to expose your download folder inside the container.
+
+### CLI via Docker
+```bash
+docker compose run --rm only-uploader /media/path/to/content --args
+```
+
+> For full Docker documentation, visit the [docker usage wiki page](https://github.com/coreylad/Only-Uploader/wiki/Docker).
