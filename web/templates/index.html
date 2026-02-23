@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %} – Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p class="subtitle">Welcome to the Only-Uploader web panel. Use the navigation above to configure options, trigger uploads, or cross-seed existing torrents.</p>
+
+<div class="card-grid">
+  <a class="card" href="{{ url_for('upload_get') }}">
+    <h2>📤 Upload</h2>
+    <p>Select a local path and push it to one or more trackers.</p>
+  </a>
+  <a class="card" href="{{ url_for('cross_seed_get') }}">
+    <h2>🔁 Cross-Seed</h2>
+    <p>Re-use an existing torrent you are already seeding and submit it to additional trackers.</p>
+  </a>
+  <a class="card" href="{{ url_for('config_get') }}">
+    <h2>⚙️ Config</h2>
+    <p>Edit your tracker API keys, image hosts, and all other settings.</p>
+  </a>
+</div>
+
+{% if recent_jobs %}
+<h2>Recent Jobs</h2>
+<table class="job-table">
+  <thead>
+    <tr><th>Job ID</th><th>Status</th><th>Lines</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for job_id, job in recent_jobs %}
+    <tr {% if not job.done %}data-job-id="{{ job_id }}"{% endif %}>
+      <td class="mono">{{ job_id }}</td>
+      <td class="job-status">
+        {% if job.done %}
+          {% if job.returncode == 0 %}
+            <span class="badge success">Done ✓</span>
+          {% else %}
+            <span class="badge error">Error ({{ job.returncode }})</span>
+          {% endif %}
+        {% else %}
+          <span class="badge running">Running…</span>
+        {% endif %}
+      </td>
+      <td class="job-lines">{{ job.lines | length }}</td>
+      <td><a href="{{ url_for('job_view', job_id=job_id) }}">View log</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

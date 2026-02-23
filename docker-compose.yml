@@ -1,0 +1,50 @@
+# Only-Uploader – self-contained environment
+# ─────────────────────────────────────────────────────────────────────────────
+# Usage:
+#   1. Copy data/example-config.py → data/config.py and fill in your API keys.
+#   2. Adjust the `volumes` below so that your media path is mounted.
+#   3. Run:  docker compose up -d
+#   4. Open the web panel at http://localhost:5000
+#
+# Environment variables you may set in a .env file or inline:
+#   WEBUI_PORT    – host port for the web panel   (default: 5000)
+#   WEBUI_HOST    – bind address inside container  (default: 0.0.0.0)
+#   SECRET_KEY    – Flask session secret           (auto-generated if omitted)
+#   FLASK_DEBUG   – set "true" to enable debug mode
+
+services:
+  only-uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: only-uploader:latest
+    container_name: only-uploader
+    # Override the default entrypoint to launch the web panel instead of CLI
+    entrypoint: ["python", "/Only-Uploader/web/app.py"]
+    ports:
+      - "${WEBUI_PORT:-5000}:5000"
+    volumes:
+      # ── Persistent configuration ───────────────────────────────────────────
+      - ./data/config.py:/Only-Uploader/data/config.py
+      - ./data/cookies:/Only-Uploader/data/cookies
+      # ── Scratch space for torrent creation / screenshots ───────────────────
+      - only-uploader-tmp:/Only-Uploader/tmp
+      # ── Media library (read-only by default – change :ro to :rw if needed) ─
+      # Uncomment and adjust the line below to point at your download folder:
+      # - /path/to/your/downloads:/media:ro
+    environment:
+      WEBUI_HOST: "0.0.0.0"
+      WEBUI_PORT: "5000"
+      # SECRET_KEY: "change-me-to-a-random-string"
+    restart: unless-stopped
+    # Health-check: verify the web panel port is accepting TCP connections
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 5000), timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  only-uploader-tmp:
+    driver: local

@@ -30,5 +30,8 @@ RUN pip install -r requirements.txt
 # Copy the rest of the application's code
 COPY . .
 
-# Set the entry point for the container
+# Expose the web panel port
+EXPOSE 5000
+
+# Default: CLI mode. Override with `entrypoint` in docker-compose.yml for web mode.
 ENTRYPOINT ["python", "/Only-Uploader/upload.py"]

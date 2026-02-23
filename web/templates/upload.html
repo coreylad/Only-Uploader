@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %} – Upload{% endblock %}
+{% block content %}
+<h1>📤 Upload</h1>
+<p class="subtitle">Specify the path to your media and the trackers you want to upload to.</p>
+
+<form method="POST" action="{{ url_for('upload_post') }}">
+  <div class="form-group">
+    <label for="path">Media Path (inside the container)</label>
+    <input type="text" id="path" name="path" placeholder="/media/My.Movie.2024.1080p.BluRay.x264" required class="form-control" />
+    <small>The path must be accessible from within the container (see the <code>volumes</code> section of <code>docker-compose.yml</code>).</small>
+  </div>
+
+  <div class="form-group">
+    <label>Trackers</label>
+    <div class="checkbox-grid">
+      {% for tracker in trackers %}
+      <label class="checkbox-label">
+        <input type="checkbox" name="trackers" value="{{ tracker }}" /> {{ tracker }}
+      </label>
+      {% endfor %}
+    </div>
+    <small>Leave all unchecked to use the <code>default_trackers</code> list from your config.</small>
+  </div>
+
+  <div class="form-group options-row">
+    <label class="checkbox-label">
+      <input type="checkbox" name="unattended" value="1" checked /> Unattended (auto-confirm)
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="anon" value="1" /> Anonymous upload
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" name="debug" value="1" /> Debug mode (dry-run)
+    </label>
+  </div>
+
+  <div class="form-actions">
+    <button type="submit" class="btn primary">Start Upload</button>
+    <a href="{{ url_for('index') }}" class="btn secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
