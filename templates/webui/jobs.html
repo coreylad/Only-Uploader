@@ -1,0 +1,48 @@
+{% extends "webui/base.html" %}
+{% block title %}Jobs – Only-Uploader{% endblock %}
+{% block content %}
+<h1>Jobs</h1>
+
+<div class="card">
+    {% if jobs %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Path / Source</th>
+                <th>Trackers</th>
+                <th>Status</th>
+                <th>Started</th>
+                <th>Finished</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for job in jobs %}
+            <tr>
+                <td><code>{{ job.id[:8] }}</code></td>
+                <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ job.path }}">{{ job.path }}</td>
+                <td>{{ job.trackers }}</td>
+                <td>
+                    {% if job.status == 'completed' %}
+                        <span class="badge badge-green">completed</span>
+                    {% elif job.status == 'running' %}
+                        <span class="badge badge-yellow">running</span>
+                    {% elif job.status == 'failed' %}
+                        <span class="badge badge-red">failed</span>
+                    {% else %}
+                        <span class="badge badge-gray">{{ job.status }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ job.started }}</td>
+                <td>{{ job.finished or '—' }}</td>
+                <td><a href="{{ url_for('job_detail', job_id=job.id) }}">details</a></td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p style="color:#8b949e">No jobs yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

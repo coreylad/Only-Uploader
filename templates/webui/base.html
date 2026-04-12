@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Only-Uploader{% endblock %}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+        a { color: #58a6ff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .navbar {
+            background: #161b22; border-bottom: 1px solid #30363d;
+            padding: 12px 24px; display: flex; align-items: center; gap: 32px;
+        }
+        .navbar .brand { font-size: 1.2rem; font-weight: 700; color: #f0f6fc; }
+        .navbar nav a { color: #8b949e; font-size: 0.9rem; }
+        .navbar nav a:hover, .navbar nav a.active { color: #f0f6fc; text-decoration: none; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+        h1 { font-size: 1.6rem; margin-bottom: 24px; color: #f0f6fc; }
+        h2 { font-size: 1.2rem; margin-bottom: 16px; color: #f0f6fc; }
+        .card {
+            background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+            padding: 24px; margin-bottom: 24px;
+        }
+        .badge {
+            display: inline-block; padding: 2px 10px; border-radius: 12px;
+            font-size: 0.75rem; font-weight: 600;
+        }
+        .badge-green  { background: #1a4731; color: #3fb950; }
+        .badge-yellow { background: #3d3010; color: #d29922; }
+        .badge-red    { background: #3d1a1a; color: #f85149; }
+        .badge-gray   { background: #21262d; color: #8b949e; }
+        .btn {
+            display: inline-block; padding: 8px 20px; border-radius: 6px;
+            font-size: 0.875rem; font-weight: 600; cursor: pointer; border: none;
+        }
+        .btn-primary { background: #238636; color: #fff; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-secondary { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+        .btn-secondary:hover { background: #30363d; }
+        .btn-danger { background: #b62324; color: #fff; }
+        .btn-danger:hover { background: #d73a49; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.875rem; margin-bottom: 6px; color: #8b949e; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%; padding: 8px 12px; background: #0d1117;
+            border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9;
+            font-size: 0.9rem;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none; border-color: #58a6ff;
+        }
+        .form-row { display: flex; gap: 16px; }
+        .form-row .form-group { flex: 1; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; font-size: 0.8rem; color: #8b949e; padding: 8px 12px; border-bottom: 1px solid #30363d; }
+        td { padding: 10px 12px; border-bottom: 1px solid #21262d; font-size: 0.875rem; }
+        tr:last-child td { border-bottom: none; }
+        .flash { padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; font-size: 0.875rem; }
+        .flash-success { background: #1a4731; color: #3fb950; border: 1px solid #2ea043; }
+        .flash-error   { background: #3d1a1a; color: #f85149; border: 1px solid #b62324; }
+        .flash-info    { background: #0d1b2a; color: #58a6ff; border: 1px solid #1f6feb; }
+        pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; overflow-x: auto; font-size: 0.8rem; white-space: pre-wrap; }
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; text-align: center; }
+        .stat-number { font-size: 2rem; font-weight: 700; color: #f0f6fc; }
+        .stat-label  { font-size: 0.8rem; color: #8b949e; margin-top: 4px; }
+    </style>
+</head>
+<body>
+<nav class="navbar">
+    <span class="brand">⬆ Only-Uploader</span>
+    <nav style="display:flex;gap:20px;">
+        <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+        <a href="{{ url_for('upload_page') }}" class="{% if request.endpoint == 'upload_page' %}active{% endif %}">Upload</a>
+        <a href="{{ url_for('jobs_page') }}" class="{% if request.endpoint == 'jobs_page' %}active{% endif %}">Jobs</a>
+        <a href="{{ url_for('config_page') }}" class="{% if request.endpoint == 'config_page' %}active{% endif %}">Config</a>
+    </nav>
+</nav>
+<div class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+</div>
+</body>
+</html>

@@ -84,6 +84,7 @@ except Exception:
         console.print(traceback.print_exc())
 
 from src.prep import Prep  # noqa E402
+from src.cross_seed import CrossSeedDownloader  # noqa E402
 client = Clients(config=config)
 parser = Args(config)
 
@@ -253,6 +254,17 @@ async def process_meta(meta, base_dir):
         if str(ua).lower() == "true":
             meta['unattended'] = True
             console.print("[yellow]Running in Auto Mode")
+
+    # Fetch metadata from a source tracker when --download-from is used.
+    download_from = meta.get('download_from')
+    source_id = meta.get('source_id')
+    if download_from and source_id:
+        downloader = CrossSeedDownloader(config)
+        meta = await downloader.fetch_meta(
+            source_tracker=download_from,
+            torrent_id=source_id,
+            meta=meta,
+        )
 
     prep = Prep(screens=meta['screens'], img_host=meta['imghost'], config=config)
     meta = await prep.gather_prep(meta=meta, mode='cli')
