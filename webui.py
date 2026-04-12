@@ -10,11 +10,12 @@ Start with:
     python webui.py [--host 0.0.0.0] [--port 5000] [--debug]
 
 The server is intentionally single-threaded so that the background upload
-jobs (which invoke the existing CLI pipeline via subprocess) do not race
-each other.  Jobs are queued and executed sequentially by a dedicated
-background thread.
+jobs do not race each other.  Jobs are queued and executed sequentially by a
+dedicated background thread that calls the upload pipeline directly
+(in-process, via run_upload_programmatic) rather than spawning a subprocess.
 """
 
+import io
 import os
 import sys
 import json
@@ -23,8 +24,9 @@ import queue
 import shlex
 import logging
 import argparse
+import asyncio
+import contextlib
 import threading
-import subprocess
 from datetime import datetime, timezone
 
 from flask import (
@@ -45,7 +47,6 @@ from src.cross_seed import UNIT3D_API_MAP
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 JOBS_FILE = os.path.join(BASE_DIR, "tmp", "webui_jobs.json")
 CONFIG_FILE = os.path.join(BASE_DIR, "data", "config.py")
-UPLOAD_SCRIPT = os.path.join(BASE_DIR, "upload.py")
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -120,7 +121,7 @@ _job_queue = queue.Queue()
 
 
 def _run_job(job_id):
-    """Execute the upload.py script for *job_id* and stream output to the log."""
+    """Execute the upload pipeline in-process for *job_id*, capturing all output."""
     job = _get_job(job_id)
     if not job:
         log.error("Job %s not found", job_id)
@@ -129,58 +130,63 @@ def _run_job(job_id):
     _update_job(job_id, status="running", started=datetime.now(timezone.utc).isoformat())
     log.info("Starting job %s: %s", job_id, job["path"])
 
-    # Build the command
-    cmd = [sys.executable, UPLOAD_SCRIPT, job["path"]]
+    # Build the meta_overrides dict from the stored job record.
+    meta_overrides = {
+        "path": job["path"],
+        "trackers": job.get("trackers") or "",
+        "download_from": job.get("download_from"),
+        "source_id": job.get("source_id"),
+        "debug": bool(job.get("debug")),
+        "unattended": True,
+    }
 
-    if job.get("trackers"):
-        cmd += ["--trackers", job["trackers"]]
-
-    if job.get("download_from"):
-        cmd += ["--download-from", job["download_from"]]
-
-    if job.get("source_id"):
-        cmd += ["--source-id", str(job["source_id"])]
-
-    if job.get("debug"):
-        cmd.append("--debug")
-
-    # Append any extra free-form args that were submitted via the form.
-    # Use shlex.split() to correctly handle quoted strings / paths with spaces.
+    # Parse any extra free-form flags submitted via the form and merge them.
     extra = job.get("extra_args", "").strip()
     if extra:
-        cmd += shlex.split(extra)
+        extra_tokens = shlex.split(extra)
+        # Walk token pairs to extract --flag value entries into meta_overrides.
+        i = 0
+        while i < len(extra_tokens):
+            tok = extra_tokens[i]
+            if tok.startswith("--") and i + 1 < len(extra_tokens) and not extra_tokens[i + 1].startswith("--"):
+                key = tok.lstrip("-").replace("-", "_")
+                meta_overrides[key] = extra_tokens[i + 1]
+                i += 2
+            elif tok.startswith("--"):
+                key = tok.lstrip("-").replace("-", "_")
+                meta_overrides[key] = True
+                i += 1
+            else:
+                i += 1
 
-    # Always run unattended from the Web UI (the form checkbox controls this
-    # only when the user explicitly wants to override it; the flag is safe to
-    # pass once even if the extra_args already contain it because argparse
-    # treats store_true idempotently).
-    if "--unattended" not in cmd:
-        cmd.append("--unattended")
-
-    log.info("Command: %s", " ".join(cmd))
-    accumulated_log = ""
-    line_count = 0
-
+    # Import run_upload_programmatic lazily so webui.py stays importable even
+    # if data/config.py does not yet exist (the config page handles that case).
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=BASE_DIR,
+        from upload import run_upload_programmatic  # noqa: PLC0415
+    except Exception as import_exc:
+        log.error("Failed to import upload pipeline: %s", import_exc)
+        _update_job(
+            job_id,
+            status="failed",
+            finished=datetime.now(timezone.utc).isoformat(),
+            log=f"[webui] Import error: {import_exc}\n",
         )
-        for line in iter(proc.stdout.readline, ""):
-            accumulated_log += line
-            line_count += 1
-            # Flush log to disk every 20 lines so the UI can tail it
-            if line_count % 20 == 0:
-                _update_job(job_id, log=accumulated_log)
-        proc.wait()
-        status = "completed" if proc.returncode == 0 else "failed"
-    except Exception as exc:
-        accumulated_log += f"\n[webui] ERROR: {exc}\n"
-        status = "failed"
+        return
 
+    # Capture all output (Rich console + print + logging to stdout/stderr) into
+    # a StringIO buffer.  Jobs run sequentially on a single worker thread so
+    # redirecting the global sys.stdout/stderr here is safe.
+    buf = io.StringIO()
+    status = "failed"
+    try:
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            asyncio.run(run_upload_programmatic(meta_overrides))
+        status = "completed"
+    except Exception as exc:
+        buf.write(f"\n[webui] ERROR: {exc}\n")
+        log.exception("Job %s raised an exception", job_id)
+
+    accumulated_log = buf.getvalue()
     _update_job(
         job_id,
         status=status,

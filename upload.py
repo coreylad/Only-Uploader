@@ -304,6 +304,353 @@ async def process_meta(meta, base_dir):
         prep.create_random_torrents(meta['base_dir'], meta['uuid'], meta['randomized'], meta['path'])
 
 
+async def _upload_to_trackers(meta, prep, trackers):
+    """Upload *meta* to every tracker in *trackers*.
+
+    This is the shared implementation used by both the CLI (do_the_thing) and
+    the Web UI (run_upload_programmatic).  All tracker logic lives here so
+    there is only one copy of the upload loop.
+    """
+    # ── Upload to Trackers ──────────────────────────────────────────────────
+    common = COMMON(config=config)
+    api_trackers = [
+        'ACM', 'AITHER', 'AL', 'BHD', 'BLU', 'CBR', 'FNP', 'HUNO', 'JPTV', 'LCD', 'LST', 'LT',
+        'OE', 'OTW', 'PSS', 'RF', 'R4E', 'SHRI', 'TIK', 'ULCX', 'UTP', 'YOINK', 'PTT', 'YUS', 'SP', 'LUME', 'STC', 'HHD', 'DP'
+    ]
+    other_api_trackers = [
+        'ANT', 'BHDTV', 'NBL', 'RTF', 'SN', 'SPD', 'TL', 'TVC'
+    ]
+    http_trackers = [
+        'FL', 'HDB', 'HDT', 'MTV', 'PTER', 'TTG'
+    ]
+    tracker_class_map = {
+        'ACM': ACM, 'AITHER': AITHER, 'AL': AL, 'ANT': ANT, 'BHD': BHD, 'BHDTV': BHDTV, 'BLU': BLU, 'CBR': CBR,
+        'FNP': FNP, 'FL': FL, 'HDB': HDB, 'HDT': HDT, 'HP': HP, 'HUNO': HUNO, 'JPTV': JPTV, 'LCD': LCD,
+        'LST': LST, 'LT': LT, 'MTV': MTV, 'NBL': NBL, 'OE': OE, 'OTW': OTW, 'PSS': PSS, 'PTP': PTP, 'PTER': PTER,
+        'R4E': R4E, 'RF': RF, 'RTF': RTF, 'SHRI': SHRI, 'SN': SN, 'SPD': SPD, 'THR': THR,
+        'TIK': TIK, 'TL': TL, 'TVC': TVC, 'TTG': TTG, 'ULCX': ULCX, 'UTP': UTP, 'YOINK': YOINK, 'YUS': YUS, 'SP': SP, 'PTT': PTT, 'LUME': LUME, 'STC': STC,
+        'HHD': HHD, 'DP': DP,
+    }
+
+    tracker_capabilities = {
+        'AITHER': {'mod_q': True, 'draft': False},
+        'BHD': {'draft_live': True},
+        'BLU': {'mod_q': True, 'draft': False},
+        'LST': {'mod_q': True, 'draft': True}
+    }
+
+    async def check_mod_q_and_draft(tracker_class, meta, debug, disctype):
+        modq, draft = None, None
+        tracker_caps = tracker_capabilities.get(tracker_class.tracker, {})
+        if tracker_class.tracker == 'BHD' and tracker_caps.get('draft_live'):
+            draft_int = await tracker_class.get_live(meta)
+            draft = "Draft" if draft_int == 0 else "Live"
+        else:
+            if tracker_caps.get('mod_q'):
+                modq = await tracker_class.get_flag(meta, 'modq')
+                modq = 'Yes' if modq else 'No'
+            if tracker_caps.get('draft'):
+                draft = await tracker_class.get_flag(meta, 'draft')
+                draft = 'Yes' if draft else 'No'
+        return modq, draft
+
+    for tracker in trackers:
+        disctype = meta.get('disctype', None)
+        tracker = tracker.replace(" ", "").upper().strip()
+        if meta['name'].endswith('DUPE?'):
+            meta['name'] = meta['name'].replace(' DUPE?', '')
+
+        if meta['debug']:
+            debug = "(DEBUG)"
+        else:
+            debug = ""
+
+        if tracker in api_trackers:
+            tracker_class = tracker_class_map[tracker](config=config)
+
+            if meta['unattended']:
+                upload_to_tracker = True
+            else:
+                try:
+                    upload_to_tracker = cli_ui.ask_yes_no(
+                        f"Upload to {tracker_class.tracker}? {debug}",
+                        default=meta['unattended']
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit(1)
+
+            if upload_to_tracker:
+                modq, draft = await check_mod_q_and_draft(tracker_class, meta, debug, disctype)
+                if modq is not None:
+                    console.print(f"(modq: {modq})")
+                if draft is not None:
+                    console.print(f"(draft: {draft})")
+                console.print(f"Uploading to {tracker_class.tracker}")
+                if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
+                    continue
+                dupes = await tracker_class.search_existing(meta, disctype)
+                if 'skipping' not in meta or meta['skipping'] is None:
+                    dupes = await common.filter_dupes(dupes, meta)
+                    meta = dupe_check(dupes, meta)
+                    if meta.get('upload', False):
+                        await tracker_class.upload(meta, disctype)
+                        perm = config['DEFAULT'].get('get_permalink', False)
+                        if perm:
+                            await asyncio.sleep(5)
+                            await tracker_class.search_torrent_page(meta, disctype)
+                            await asyncio.sleep(0.5)
+                        await client.add_to_client(meta, tracker_class.tracker)
+                meta['skipping'] = None
+
+        if tracker in other_api_trackers:
+            tracker_class = tracker_class_map[tracker](config=config)
+
+            if meta['unattended']:
+                upload_to_tracker = True
+            else:
+                try:
+                    upload_to_tracker = cli_ui.ask_yes_no(
+                        f"Upload to {tracker_class.tracker}? {debug}",
+                        default=meta['unattended']
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit(1)
+
+            if upload_to_tracker:
+                modq, draft = await check_mod_q_and_draft(tracker_class, meta, debug, disctype)
+                if modq is not None:
+                    console.print(f"(modq: {modq})")
+                if draft is not None:
+                    console.print(f"(draft: {draft})")
+                console.print(f"Uploading to {tracker_class.tracker}")
+                if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
+                    continue
+                if tracker != "TL":
+                    if tracker == "RTF":
+                        await tracker_class.api_test(meta)
+                    dupes = await tracker_class.search_existing(meta, disctype)
+                    if 'skipping' not in meta or meta['skipping'] is None:
+                        dupes = await common.filter_dupes(dupes, meta)
+                        meta = dupe_check(dupes, meta)
+                if 'skipping' not in meta or meta['skipping'] is None:
+                    if tracker == "TL" or meta.get('upload', False):
+                        await tracker_class.upload(meta, disctype)
+                        if tracker == 'SN':
+                            await asyncio.sleep(16)
+                        await client.add_to_client(meta, tracker_class.tracker)
+                meta['skipping'] = None
+
+        if tracker in http_trackers:
+            tracker_class = tracker_class_map[tracker](config=config)
+
+            if meta['unattended']:
+                upload_to_tracker = True
+            else:
+                try:
+                    upload_to_tracker = cli_ui.ask_yes_no(
+                        f"Upload to {tracker_class.tracker}? {debug}",
+                        default=meta['unattended']
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit(1)
+
+            if upload_to_tracker:
+                console.print(f"Uploading to {tracker}")
+                if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
+                    continue
+                if await tracker_class.validate_credentials(meta) is True:
+                    dupes = await tracker_class.search_existing(meta, disctype)
+                    dupes = await common.filter_dupes(dupes, meta)
+                    meta = dupe_check(dupes, meta)
+                    if meta['upload'] is True:
+                        await tracker_class.upload(meta, disctype)
+                        await client.add_to_client(meta, tracker_class.tracker)
+
+        if tracker == "MANUAL":
+            if meta['unattended']:
+                do_manual = True
+            else:
+                do_manual = cli_ui.ask_yes_no("Get files for manual upload?", default=True)
+            if do_manual:
+                for manual_tracker in trackers:
+                    if manual_tracker != 'MANUAL':
+                        manual_tracker = manual_tracker.replace(" ", "").upper().strip()
+                        tracker_class = tracker_class_map[manual_tracker](config=config)
+                        if manual_tracker in api_trackers:
+                            await common.unit3d_edit_desc(meta, tracker_class.tracker, tracker_class.signature)
+                        else:
+                            await tracker_class.edit_desc(meta)
+                url = await prep.package(meta)
+                if url is False:
+                    console.print(f"[yellow]Unable to upload prep files, they can be found at `tmp/{meta['uuid']}")
+                else:
+                    console.print(f"[green]{meta['name']}")
+                    console.print(f"[green]Files can be found at: [yellow]{url}[/yellow]")
+
+        if tracker == "THR":
+            if meta['unattended']:
+                upload_to_thr = True
+            else:
+                try:
+                    upload_to_ptp = cli_ui.ask_yes_no(  # noqa: F841
+                        f"Upload to THR? {debug}",
+                        default=meta['unattended']
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit(1)
+            if upload_to_thr:
+                console.print("Uploading to THR")
+                if meta.get('imdb_id', '0') == '0':
+                    imdb_id = cli_ui.ask_string("Unable to find IMDB id, please enter e.g.(tt1234567)")
+                    meta['imdb_id'] = imdb_id.replace('tt', '').zfill(7)
+                if meta.get('youtube', None) is None:
+                    youtube = cli_ui.ask_string("Unable to find youtube trailer, please link one e.g.(https://www.youtube.com/watch?v=dQw4w9WgXcQ)")
+                    meta['youtube'] = youtube
+                thr = THR(config=config)
+                try:
+                    with requests.Session() as session:
+                        console.print("[yellow]Logging in to THR")
+                        session = thr.login(session)
+                        console.print("[yellow]Searching for Dupes")
+                        dupes = thr.search_existing(session, disctype, meta.get('imdb_id'))
+                        dupes = await common.filter_dupes(dupes, meta)
+                        meta = dupe_check(dupes, meta)
+                        if meta['upload'] is True:
+                            await thr.upload(session, meta, disctype)
+                            await client.add_to_client(meta, "THR")
+                except Exception:
+                    console.print(traceback.format_exc())
+
+        if tracker == "PTP":
+            if meta['unattended']:
+                upload_to_ptp = True
+            else:
+                try:
+                    upload_to_ptp = cli_ui.ask_yes_no(
+                        f"Upload to {tracker}? {debug}",
+                        default=meta['unattended']
+                    )
+                except (KeyboardInterrupt, EOFError):
+                    sys.exit(1)
+
+            if upload_to_ptp:
+                console.print(f"Uploading to {tracker}")
+                if meta.get('imdb_id', '0') == '0':
+                    imdb_id = cli_ui.ask_string("Unable to find IMDB id, please enter e.g.(tt1234567)")
+                    meta['imdb_id'] = imdb_id.replace('tt', '').zfill(7)
+                ptp = PTP(config=config)
+                if check_banned_group("PTP", ptp.banned_groups, meta):
+                    continue
+                try:
+                    console.print("[yellow]Searching for Group ID")
+                    groupID = await ptp.get_group_by_imdb(meta['imdb_id'])
+                    if groupID is None:
+                        console.print("[yellow]No Existing Group found")
+                        if meta.get('youtube', None) is None or "youtube" not in str(meta.get('youtube', '')):
+                            youtube = cli_ui.ask_string("Unable to find youtube trailer, please link one e.g.(https://www.youtube.com/watch?v=dQw4w9WgXcQ)", default="")
+                            meta['youtube'] = youtube
+                        meta['upload'] = True
+                    else:
+                        console.print("[yellow]Searching for Existing Releases")
+                        dupes = await ptp.search_existing(groupID, meta, disctype)
+                        dupes = await common.filter_dupes(dupes, meta)
+                        meta = dupe_check(dupes, meta)
+                    if meta.get('imdb_info', {}) == {}:
+                        meta['imdb_info'] = await prep.get_imdb_info(meta['imdb_id'], meta)
+                    if meta['upload'] is True:
+                        ptpUrl, ptpData = await ptp.fill_upload_form(groupID, meta)
+                        await ptp.upload(meta, ptpUrl, ptpData, disctype)
+                        await asyncio.sleep(5)
+                        await client.add_to_client(meta, "PTP")
+                except Exception:
+                    console.print(traceback.format_exc())
+
+
+async def run_upload_programmatic(meta_overrides):
+    """Run the full upload pipeline programmatically (no sys.argv, no sys.exit).
+
+    Called by the Web UI worker thread.  *meta_overrides* is a plain dict with
+    the same keys that the CLI flags produce:
+
+        path          – required – absolute path to the content
+        trackers      – comma/space-separated tracker abbreviations (str or list)
+        download_from – source tracker abbreviation (str) or None
+        source_id     – torrent ID on the source tracker (str) or None
+        debug         – bool
+        unattended    – always forced True by this function
+        … any other key accepted by parser.parse()
+
+    The function uses contextlib.redirect_stdout / redirect_stderr so that
+    Rich console output and all print() calls are captured by whatever the
+    caller has set sys.stdout to (the Web UI redirects it to a StringIO buffer
+    to stream log lines into the job record).
+
+    Returns on success; raises an exception on failure.
+    """
+    path = meta_overrides.get('path', '')
+    if not path or not os.path.exists(path):
+        raise ValueError(f"Path does not exist: {path!r}")
+
+    # Build a synthetic argv tuple from the overrides so that parser.parse()
+    # fills meta identically to a CLI invocation.
+    synthetic_args = [path]
+
+    trackers = meta_overrides.get('trackers')
+    if trackers:
+        if isinstance(trackers, list):
+            synthetic_args += ['--trackers'] + trackers
+        else:
+            synthetic_args += ['--trackers'] + [t.strip() for t in trackers.replace(',', ' ').split()]
+
+    if meta_overrides.get('download_from'):
+        synthetic_args += ['--download-from', meta_overrides['download_from']]
+
+    if meta_overrides.get('source_id'):
+        synthetic_args += ['--source-id', str(meta_overrides['source_id'])]
+
+    if meta_overrides.get('debug'):
+        synthetic_args.append('--debug')
+
+    # Extra free-form flags (category, type, tmdb, imdb, edition, etc.)
+    for key in ('category', 'manual_type', 'resolution', 'tmdb', 'imdb',
+                'manual_edition', 'screens', 'tag', 'desc', 'imghost',
+                'region', 'season', 'episode'):
+        val = meta_overrides.get(key)
+        if val:
+            synthetic_args += [f'--{key.replace("_", "-")}', str(val)]
+
+    for flag in ('anon', 'nohash', 'rehash', 'draft', 'modq', 'stream',
+                 'personalrelease', 'dupe', 'no_seed', 'skip_imghost_upload'):
+        if meta_overrides.get(flag):
+            synthetic_args.append(f'--{flag.replace("_", "-")}')
+
+    meta = {'base_dir': base_dir, 'unattended': True}
+    meta, _help, _before = parser.parse(tuple(synthetic_args), meta)
+    meta['unattended'] = True   # always force unattended from the Web UI
+    meta['path'] = path
+
+    # Load and merge any previously saved meta for this path
+    meta_file = os.path.join(base_dir, "tmp", os.path.basename(path), "meta.json")
+    if os.path.exists(meta_file):
+        with open(meta_file) as f:
+            saved_meta = json.load(f)
+        meta.update(merge_meta(meta, saved_meta, path))
+
+    console.print(f"[green]Gathering info for {os.path.basename(path)}")
+    await process_meta(meta, base_dir)
+
+    prep = Prep(screens=meta['screens'], img_host=meta['imghost'], config=config)
+
+    raw_trackers = meta.get('trackers') or config['TRACKERS']['default_trackers']
+    if isinstance(raw_trackers, str):
+        raw_trackers = raw_trackers.replace(',', ' ').split()
+    tracker_list = [t.strip().upper() for t in raw_trackers if t.strip()]
+    if meta.get('manual', False):
+        tracker_list.insert(0, "MANUAL")
+
+    await _upload_to_trackers(meta, prep, tracker_list)
+
+
 async def do_the_thing(base_dir):
     meta = {'base_dir': base_dir}
     paths = []
@@ -543,239 +890,6 @@ async def do_the_thing(base_dir):
             trackers.insert(0, "MANUAL")
 
         await _upload_to_trackers(meta, prep, trackers)
-
-        for tracker in trackers:
-            disctype = meta.get('disctype', None)
-            tracker = tracker.replace(" ", "").upper().strip()
-            if meta['name'].endswith('DUPE?'):
-                meta['name'] = meta['name'].replace(' DUPE?', '')
-
-            if meta['debug']:
-                debug = "(DEBUG)"
-            else:
-                debug = ""
-
-            if tracker in api_trackers:
-                tracker_class = tracker_class_map[tracker](config=config)
-
-                if meta['unattended']:
-                    upload_to_tracker = True
-                else:
-                    try:
-                        upload_to_tracker = cli_ui.ask_yes_no(
-                            f"Upload to {tracker_class.tracker}? {debug}",
-                            default=meta['unattended']
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        sys.exit(1)  # Exit immediately
-
-                if upload_to_tracker:
-                    # Get mod_q, draft, or draft/live depending on the tracker
-                    modq, draft = await check_mod_q_and_draft(tracker_class, meta, debug, disctype)
-
-                    # Print mod_q and draft info if relevant
-                    if modq is not None:
-                        console.print(f"(modq: {modq})")
-                    if draft is not None:
-                        console.print(f"(draft: {draft})")
-
-                    console.print(f"Uploading to {tracker_class.tracker}")
-
-                    # Check if the group is banned for the tracker
-                    if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
-                        continue
-
-                    dupes = await tracker_class.search_existing(meta, disctype)
-                    if 'skipping' not in meta or meta['skipping'] is None:
-                        dupes = await common.filter_dupes(dupes, meta)
-                        meta = dupe_check(dupes, meta)
-
-                        # Proceed with upload if the meta is set to upload
-                        if meta.get('upload', False):
-                            await tracker_class.upload(meta, disctype)
-                            perm = config['DEFAULT'].get('get_permalink', False)
-                            if perm:
-                                # need a wait so we don't race the api
-                                await asyncio.sleep(5)
-                                await tracker_class.search_torrent_page(meta, disctype)
-                                await asyncio.sleep(0.5)
-                            await client.add_to_client(meta, tracker_class.tracker)
-                    meta['skipping'] = None
-
-            if tracker in other_api_trackers:
-                tracker_class = tracker_class_map[tracker](config=config)
-
-                if meta['unattended']:
-                    upload_to_tracker = True
-                else:
-                    try:
-                        upload_to_tracker = cli_ui.ask_yes_no(
-                            f"Upload to {tracker_class.tracker}? {debug}",
-                            default=meta['unattended']
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        sys.exit(1)  # Exit immediately
-
-                if upload_to_tracker:
-                    # Get mod_q, draft, or draft/live depending on the tracker
-                    modq, draft = await check_mod_q_and_draft(tracker_class, meta, debug, disctype)
-
-                    # Print mod_q and draft info if relevant
-                    if modq is not None:
-                        console.print(f"(modq: {modq})")
-                    if draft is not None:
-                        console.print(f"(draft: {draft})")
-
-                    console.print(f"Uploading to {tracker_class.tracker}")
-
-                    # Check if the group is banned for the tracker
-                    if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
-                        continue
-
-                    # Perform the existing checks for dupes except TL
-                    if tracker != "TL":
-                        if tracker == "RTF":
-                            await tracker_class.api_test(meta)
-
-                        dupes = await tracker_class.search_existing(meta, disctype)
-                        if 'skipping' not in meta or meta['skipping'] is None:
-                            dupes = await common.filter_dupes(dupes, meta)
-                            meta = dupe_check(dupes, meta)
-
-                    if 'skipping' not in meta or meta['skipping'] is None:
-                        # Proceed with upload if the meta is set to upload
-                        if tracker == "TL" or meta.get('upload', False):
-                            await tracker_class.upload(meta, disctype)
-                            if tracker == 'SN':
-                                await asyncio.sleep(16)
-                            await client.add_to_client(meta, tracker_class.tracker)
-                    meta['skipping'] = None
-
-            if tracker in http_trackers:
-                tracker_class = tracker_class_map[tracker](config=config)
-
-                if meta['unattended']:
-                    upload_to_tracker = True
-                else:
-                    try:
-                        upload_to_tracker = cli_ui.ask_yes_no(
-                            f"Upload to {tracker_class.tracker}? {debug}",
-                            default=meta['unattended']
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        sys.exit(1)  # Exit immediately
-
-                if upload_to_tracker:
-                    console.print(f"Uploading to {tracker}")
-                    if check_banned_group(tracker_class.tracker, tracker_class.banned_groups, meta):
-                        continue
-                    if await tracker_class.validate_credentials(meta) is True:
-                        dupes = await tracker_class.search_existing(meta, disctype)
-                        dupes = await common.filter_dupes(dupes, meta)
-                        meta = dupe_check(dupes, meta)
-                        if meta['upload'] is True:
-                            await tracker_class.upload(meta, disctype)
-                            await client.add_to_client(meta, tracker_class.tracker)
-
-            if tracker == "MANUAL":
-                if meta['unattended']:
-                    do_manual = True
-                else:
-                    do_manual = cli_ui.ask_yes_no("Get files for manual upload?", default=True)
-                if do_manual:
-                    for manual_tracker in trackers:
-                        if manual_tracker != 'MANUAL':
-                            manual_tracker = manual_tracker.replace(" ", "").upper().strip()
-                            tracker_class = tracker_class_map[manual_tracker](config=config)
-                            if manual_tracker in api_trackers:
-                                await common.unit3d_edit_desc(meta, tracker_class.tracker, tracker_class.signature)
-                            else:
-                                await tracker_class.edit_desc(meta)
-                    url = await prep.package(meta)
-                    if url is False:
-                        console.print(f"[yellow]Unable to upload prep files, they can be found at `tmp/{meta['uuid']}")
-                    else:
-                        console.print(f"[green]{meta['name']}")
-                        console.print(f"[green]Files can be found at: [yellow]{url}[/yellow]")
-
-            if tracker == "THR":
-                if meta['unattended']:
-                    upload_to_thr = True
-                else:
-                    try:
-                        upload_to_ptp = cli_ui.ask_yes_no(
-                            f"Upload to THR? {debug}",
-                            default=meta['unattended']
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        sys.exit(1)  # Exit immediately
-                if upload_to_thr:
-                    console.print("Uploading to THR")
-                    # nable to get IMDB id/Youtube Link
-                    if meta.get('imdb_id', '0') == '0':
-                        imdb_id = cli_ui.ask_string("Unable to find IMDB id, please enter e.g.(tt1234567)")
-                        meta['imdb_id'] = imdb_id.replace('tt', '').zfill(7)
-                    if meta.get('youtube', None) is None:
-                        youtube = cli_ui.ask_string("Unable to find youtube trailer, please link one e.g.(https://www.youtube.com/watch?v=dQw4w9WgXcQ)")
-                        meta['youtube'] = youtube
-                    thr = THR(config=config)
-                    try:
-                        with requests.Session() as session:
-                            console.print("[yellow]Logging in to THR")
-                            session = thr.login(session)
-                            console.print("[yellow]Searching for Dupes")
-                            dupes = thr.search_existing(session, disctype, meta.get('imdb_id'))
-                            dupes = await common.filter_dupes(dupes, meta)
-                            meta = dupe_check(dupes, meta)
-                            if meta['upload'] is True:
-                                await thr.upload(session, meta, disctype)
-                                await client.add_to_client(meta, "THR")
-                    except Exception:
-                        console.print(traceback.format_exc())
-
-            if tracker == "PTP":
-                if meta['unattended']:
-                    upload_to_ptp = True
-                else:
-                    try:
-                        upload_to_ptp = cli_ui.ask_yes_no(
-                            f"Upload to {tracker}? {debug}",
-                            default=meta['unattended']
-                        )
-                    except (KeyboardInterrupt, EOFError):
-                        sys.exit(1)  # Exit immediately
-
-                if upload_to_ptp:  # Ensure the variable is defined before this check
-                    console.print(f"Uploading to {tracker}")
-                    if meta.get('imdb_id', '0') == '0':
-                        imdb_id = cli_ui.ask_string("Unable to find IMDB id, please enter e.g.(tt1234567)")
-                        meta['imdb_id'] = imdb_id.replace('tt', '').zfill(7)
-                    ptp = PTP(config=config)
-                    if check_banned_group("PTP", ptp.banned_groups, meta):
-                        continue
-                    try:
-                        console.print("[yellow]Searching for Group ID")
-                        groupID = await ptp.get_group_by_imdb(meta['imdb_id'])
-                        if groupID is None:
-                            console.print("[yellow]No Existing Group found")
-                            if meta.get('youtube', None) is None or "youtube" not in str(meta.get('youtube', '')):
-                                youtube = cli_ui.ask_string("Unable to find youtube trailer, please link one e.g.(https://www.youtube.com/watch?v=dQw4w9WgXcQ)", default="")
-                                meta['youtube'] = youtube
-                            meta['upload'] = True
-                        else:
-                            console.print("[yellow]Searching for Existing Releases")
-                            dupes = await ptp.search_existing(groupID, meta, disctype)
-                            dupes = await common.filter_dupes(dupes, meta)
-                            meta = dupe_check(dupes, meta)
-                        if meta.get('imdb_info', {}) == {}:
-                            meta['imdb_info'] = await prep.get_imdb_info(meta['imdb_id'], meta)
-                        if meta['upload'] is True:
-                            ptpUrl, ptpData = await ptp.fill_upload_form(groupID, meta)
-                            await ptp.upload(meta, ptpUrl, ptpData, disctype)
-                            await asyncio.sleep(5)
-                            await client.add_to_client(meta, "PTP")
-                    except Exception:
-                        console.print(traceback.format_exc())
 
         if meta.get('queue') is not None:
             processed_files_count += 1
