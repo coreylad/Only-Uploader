@@ -6,19 +6,35 @@ and prepare it for re-upload to one or more target trackers.
 Supported source trackers (UNIT3D-based with public API):
     AITHER, BLU, LST, OE, TIK, ULCX, ACM, CBR, FNP, HUNO, JPTV,
     LCD, LT, OTW, PSS, RF, R4E, SHRI, UTP, YOINK, YUS, SP, LUME,
-    STC, HHD, DP, PTT
+    STC, HHD, DP, PTT, AL, HP
 
-For other trackers the caller must supply the local content path
-manually; this class simply maps tracker API responses to *meta*.
+ruTorrent / rtorrent integration
+---------------------------------
+When a ``download_client`` entry with ``torrent_client == "rtorrent"`` is
+configured in ``TORRENT_CLIENTS``, :py:meth:`download_via_rtorrent` will:
+
+1. Download the raw ``.torrent`` file from the source tracker API.
+2. Push it to the running rtorrent daemon via its XML-RPC endpoint.
+3. Wait (configurable) for the download to appear in the client.
+
+The downloaded content path is returned so the normal upload pipeline
+can reference it as the local ``path``.
 """
 
 import os
 import re
+import ssl
+import time
 import asyncio
+import xmlrpc.client
 import requests
 
 from src.console import console
 
+
+# ---------------------------------------------------------------------------
+# Tracker API map
+# ---------------------------------------------------------------------------
 
 # Map of tracker abbreviation -> base API URL for the torrent endpoint.
 # All of these are UNIT3D instances that expose /api/torrents/<id>.
@@ -91,15 +107,24 @@ class CrossSeedDownloader:
     and populate the *meta* dictionary used by the rest of the upload
     pipeline.
 
+    ruTorrent / rtorrent download
+    ------------------------------
+    Call :py:meth:`download_via_rtorrent` to push a source-tracker
+    ``.torrent`` file into a running rtorrent daemon so the actual
+    content is downloaded to a local directory before uploading.
+
     Usage
     -----
-    downloader = CrossSeedDownloader(config)
-    meta = await downloader.fetch_meta(
-        source_tracker='AITHER',
-        torrent_id='12345',
-        meta=meta,
-    )
-    # meta is now enriched with title, tmdb, imdb, description, etc.
+    >>> downloader = CrossSeedDownloader(config)
+    >>> meta = await downloader.fetch_meta('AITHER', '12345', meta)
+    >>> # optionally trigger content download via rtorrent
+    >>> dl_path = await downloader.download_via_rtorrent(
+    ...     source_tracker='AITHER',
+    ...     torrent_id='12345',
+    ...     rtorrent_client_name='Client1',   # key in TORRENT_CLIENTS
+    ...     download_dir='/data/downloads',
+    ... )
+    >>> meta['path'] = dl_path
     """
 
     def __init__(self, config):
@@ -121,11 +146,11 @@ class CrossSeedDownloader:
         Parameters
         ----------
         source_tracker : str
-            Uppercase tracker abbreviation (e.g. 'AITHER').
+            Uppercase tracker abbreviation (e.g. ``'AITHER'``).
         torrent_id : str | int
             Numeric torrent ID on the source tracker.
         meta : dict
-            Existing meta dict (will be updated in-place and returned).
+            Existing meta dict (updated in-place and returned).
 
         Returns
         -------
@@ -142,7 +167,13 @@ class CrossSeedDownloader:
             )
             return meta
 
-        api_key = self.config.get('TRACKERS', {}).get(source_tracker, {}).get('api_key', '').strip()
+        api_key = (
+            self.config
+            .get('TRACKERS', {})
+            .get(source_tracker, {})
+            .get('api_key', '')
+            .strip()
+        )
         if not api_key:
             console.print(
                 f"[bold red]Cross-seed: no api_key configured for "
@@ -203,7 +234,13 @@ class CrossSeedDownloader:
             )
             return False
 
-        api_key = self.config.get('TRACKERS', {}).get(source_tracker, {}).get('api_key', '').strip()
+        api_key = (
+            self.config
+            .get('TRACKERS', {})
+            .get(source_tracker, {})
+            .get('api_key', '')
+            .strip()
+        )
         if not api_key:
             console.print(
                 f"[bold red]Cross-seed: no api_key configured for '{source_tracker}'[/bold red]"
@@ -238,7 +275,230 @@ class CrossSeedDownloader:
         return True
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # ruTorrent / rtorrent integration
+    # ------------------------------------------------------------------
+
+    async def download_via_rtorrent(
+        self,
+        source_tracker,
+        torrent_id,
+        rtorrent_client_name=None,
+        download_dir=None,
+        rtorrent_label=None,
+        wait_timeout=0,
+    ):
+        """
+        Download content from *source_tracker* via an rtorrent daemon.
+
+        Steps
+        -----
+        1. Fetch the ``.torrent`` file from the source tracker API.
+        2. Push it to the rtorrent daemon via XML-RPC (same mechanism
+           used by :py:class:`src.clients.Clients`).
+        3. Optionally wait up to *wait_timeout* seconds for rtorrent to
+           report the download as complete.
+
+        Parameters
+        ----------
+        source_tracker : str
+            Uppercase tracker abbreviation (e.g. ``'AITHER'``).
+        torrent_id : str | int
+            Numeric torrent ID on the source tracker.
+        rtorrent_client_name : str | None
+            Key in ``config['TORRENT_CLIENTS']`` for the rtorrent client
+            to use.  Defaults to ``config['DEFAULT']['default_torrent_client']``.
+        download_dir : str | None
+            Directory where rtorrent should save the downloaded content.
+            Defaults to the ``download_dir`` set in the client config, or
+            ``/tmp/only-uploader-downloads`` as a fallback.
+        rtorrent_label : str | None
+            Optional custom1 label to attach in rtorrent.
+        wait_timeout : int
+            Seconds to wait for the download to finish (0 = fire-and-forget).
+
+        Returns
+        -------
+        str | None
+            Absolute path where the content will be / was downloaded,
+            or ``None`` on failure.
+        """
+        source_tracker = source_tracker.upper().strip()
+
+        # ---- resolve client config ----------------------------------------
+        if rtorrent_client_name is None:
+            rtorrent_client_name = self.config['DEFAULT'].get('default_torrent_client', '')
+
+        client_cfg = self.config.get('TORRENT_CLIENTS', {}).get(rtorrent_client_name)
+        if client_cfg is None:
+            console.print(
+                f"[bold red]Cross-seed: torrent client '{rtorrent_client_name}' "
+                "not found in TORRENT_CLIENTS config[/bold red]"
+            )
+            return None
+
+        if client_cfg.get('torrent_client', '').lower() != 'rtorrent':
+            console.print(
+                f"[bold red]Cross-seed: client '{rtorrent_client_name}' is not "
+                f"an rtorrent client (got: {client_cfg.get('torrent_client')})[/bold red]"
+            )
+            return None
+
+        rtorrent_url = client_cfg.get('rtorrent_url', '').strip()
+        if not rtorrent_url:
+            console.print(
+                "[bold red]Cross-seed: rtorrent_url is not set in client config[/bold red]"
+            )
+            return None
+
+        # ---- resolve download directory ------------------------------------
+        if download_dir is None:
+            download_dir = client_cfg.get(
+                'download_dir',
+                '/tmp/only-uploader-downloads'
+            )
+        download_dir = os.path.abspath(download_dir)
+        os.makedirs(download_dir, exist_ok=True)
+
+        # ---- download the .torrent file -----------------------------------
+        torrent_file = os.path.join(
+            download_dir,
+            f"cross-seed-{source_tracker}-{torrent_id}.torrent"
+        )
+        success = await self.download_torrent_file(source_tracker, torrent_id, torrent_file)
+        if not success:
+            return None
+
+        # ---- push to rtorrent via XML-RPC ---------------------------------
+        console.print(
+            f"[cyan]Cross-seed: adding .torrent to rtorrent "
+            f"(client: {rtorrent_client_name}, save path: {download_dir}) …[/cyan]"
+        )
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._rtorrent_load_start(
+                    rtorrent_url, torrent_file, download_dir, rtorrent_label
+                )
+            )
+        except Exception as exc:
+            console.print(f"[bold red]Cross-seed: rtorrent XML-RPC error – {exc}[/bold red]")
+            return None
+
+        if not result:
+            return None
+
+        console.print(
+            f"[green]Cross-seed: torrent added to rtorrent – "
+            f"content will be downloaded to {download_dir}[/green]"
+        )
+
+        # ---- optional wait for completion ---------------------------------
+        if wait_timeout > 0:
+            infohash = await self._get_torrent_infohash(torrent_file)
+            if infohash:
+                console.print(
+                    f"[cyan]Cross-seed: waiting up to {wait_timeout}s for "
+                    f"download to complete (hash: {infohash}) …[/cyan]"
+                )
+                completed = await loop.run_in_executor(
+                    None,
+                    lambda: self._wait_for_rtorrent_completion(
+                        rtorrent_url, infohash, wait_timeout
+                    )
+                )
+                if completed:
+                    console.print("[green]Cross-seed: download completed[/green]")
+                else:
+                    console.print(
+                        "[yellow]Cross-seed: download did not finish within "
+                        f"{wait_timeout}s – continuing anyway[/yellow]"
+                    )
+
+        return download_dir
+
+    # ------------------------------------------------------------------
+    # Private rtorrent helpers
+    # ------------------------------------------------------------------
+
+    def _get_rtorrent_proxy(self, rtorrent_url):
+        """Return an xmlrpc.client.Server proxy for *rtorrent_url*."""
+        return xmlrpc.client.Server(
+            rtorrent_url,
+            context=ssl._create_stdlib_context()
+        )
+
+    def _rtorrent_load_start(self, rtorrent_url, torrent_file, download_dir, label=None):
+        """
+        Load *torrent_file* into rtorrent, set the save path to
+        *download_dir*, optionally attach *label*, and start it.
+
+        Returns True on success.
+        """
+        rt = self._get_rtorrent_proxy(rtorrent_url)
+        try:
+            # load.start_verbose loads and immediately starts the torrent
+            rt.load.start_verbose(
+                '',
+                torrent_file,
+                f"d.directory_base.set={download_dir}",
+            )
+            time.sleep(1)
+
+            # Attach label if requested
+            if label:
+                try:
+                    from torf import Torrent as TorfTorrent
+                    t = TorfTorrent.read(torrent_file)
+                    infohash = t.infohash.upper()
+                    rt.d.custom1.set(infohash, label)
+                except Exception as label_exc:
+                    console.print(
+                        f"[yellow]Cross-seed: could not set rtorrent label – "
+                        f"{label_exc}[/yellow]"
+                    )
+        except xmlrpc.client.Error as exc:
+            console.print(f"[bold red]Cross-seed: rtorrent load error – {exc}[/bold red]")
+            return False
+        return True
+
+    def _wait_for_rtorrent_completion(self, rtorrent_url, infohash, timeout):
+        """
+        Poll rtorrent every 10 s until the torrent is complete or
+        *timeout* seconds have elapsed.
+
+        Returns True if the download finished within *timeout*.
+        """
+        rt = self._get_rtorrent_proxy(rtorrent_url)
+        deadline = time.monotonic() + timeout
+        infohash_upper = infohash.upper()
+
+        while time.monotonic() < deadline:
+            try:
+                # d.complete returns 1 when done, 0 while downloading
+                done = rt.d.complete(infohash_upper)
+                if done == 1:
+                    return True
+            except xmlrpc.client.Error:
+                pass
+            time.sleep(10)
+
+        return False
+
+    async def _get_torrent_infohash(self, torrent_file):
+        """Return the infohash of *torrent_file* or None on failure."""
+        try:
+            from torf import Torrent as TorfTorrent
+            loop = asyncio.get_event_loop()
+            t = await loop.run_in_executor(None, lambda: TorfTorrent.read(torrent_file))
+            return t.infohash
+        except Exception as exc:
+            console.print(f"[yellow]Cross-seed: could not read infohash – {exc}[/yellow]")
+            return None
+
+    # ------------------------------------------------------------------
+    # Internal metadata mapping
     # ------------------------------------------------------------------
 
     def _map_unit3d_attrs(self, attrs, meta, source_tracker):
@@ -260,7 +520,9 @@ class CrossSeedDownloader:
 
         # IDs
         _set('tmdb', str(attrs.get('tmdb_id', '') or ''))
-        _set('imdb_id', str(attrs.get('imdb_id', '') or '').zfill(7) if attrs.get('imdb_id') else None)
+        imdb_raw = attrs.get('imdb_id')
+        if imdb_raw:
+            _set('imdb_id', str(imdb_raw).zfill(7))
         _set('tvdb_id', str(attrs.get('tvdb_id', '') or ''))
         _set('mal_id', str(attrs.get('mal_id', '') or ''))
 

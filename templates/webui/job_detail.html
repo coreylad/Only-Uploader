@@ -1,0 +1,50 @@
+{% extends "webui/base.html" %}
+{% block title %}Job {{ job.id[:8] }} – Only-Uploader{% endblock %}
+{% block content %}
+<h1>Job Detail</h1>
+
+<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+        <div>
+            <p style="color:#8b949e;font-size:0.8rem;margin-bottom:4px">Job ID</p>
+            <code>{{ job.id }}</code>
+        </div>
+        <div>
+            {% if job.status == 'completed' %}
+                <span class="badge badge-green" style="font-size:0.9rem;padding:6px 16px">completed</span>
+            {% elif job.status == 'running' %}
+                <span class="badge badge-yellow" style="font-size:0.9rem;padding:6px 16px">running</span>
+            {% elif job.status == 'failed' %}
+                <span class="badge badge-red" style="font-size:0.9rem;padding:6px 16px">failed</span>
+            {% else %}
+                <span class="badge badge-gray" style="font-size:0.9rem;padding:6px 16px">{{ job.status }}</span>
+            {% endif %}
+        </div>
+    </div>
+
+    <table style="margin-bottom:0">
+        <tr><th style="width:160px">Path</th><td>{{ job.path }}</td></tr>
+        <tr><th>Trackers</th><td>{{ job.trackers }}</td></tr>
+        <tr><th>Started</th><td>{{ job.started }}</td></tr>
+        <tr><th>Finished</th><td>{{ job.finished or '—' }}</td></tr>
+        {% if job.download_from %}
+        <tr><th>Download-from</th><td>{{ job.download_from }} (id: {{ job.source_id }})</td></tr>
+        {% endif %}
+        {% if job.get('debug') %}<tr><th>Debug</th><td>Yes (no actual upload)</td></tr>{% endif %}
+    </table>
+</div>
+
+{% if job.log %}
+<div class="card">
+    <h2>Log Output</h2>
+    <pre id="log-output">{{ job.log }}</pre>
+    {% if job.status == 'running' %}
+    <script>
+        setTimeout(function(){ location.reload(); }, 5000);
+    </script>
+    {% endif %}
+</div>
+{% endif %}
+
+<a href="{{ url_for('jobs_page') }}" class="btn btn-secondary">← Back to Jobs</a>
+{% endblock %}
