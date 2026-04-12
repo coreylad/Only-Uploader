@@ -423,11 +423,19 @@ class CrossSeedDownloader:
     # ------------------------------------------------------------------
 
     def _get_rtorrent_proxy(self, rtorrent_url):
-        """Return an xmlrpc.client.Server proxy for *rtorrent_url*."""
-        return xmlrpc.client.Server(
-            rtorrent_url,
-            context=ssl.create_default_context()
-        )
+        """
+        Return an xmlrpc.client.Server proxy for *rtorrent_url*.
+
+        For local HTTP connections (the most common setup with ruTorrent) no
+        SSL context is needed.  An SSL context is only attached when the URL
+        uses the ``https://`` scheme, in which case the system CA bundle is
+        used for certificate verification via ``ssl.create_default_context()``.
+        """
+        if rtorrent_url.lower().startswith("https://"):
+            ctx = ssl.create_default_context()
+        else:
+            ctx = None
+        return xmlrpc.client.Server(rtorrent_url, context=ctx)
 
     def _rtorrent_load_start(self, rtorrent_url, torrent_file, download_dir, label=None):
         """

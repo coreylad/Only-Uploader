@@ -232,6 +232,9 @@ RTCONF
         RTORRENT_SERVICE="/etc/systemd/system/rtorrent.service"
         CURRENT_USER="$(whoami)"
         info "Installing rtorrent systemd service…"
+        # Use Type=simple with rtorrent running directly (not via screen) so
+        # systemd can properly track the process lifecycle.  The WorkingDirectory
+        # is set to the user home so rtorrent picks up ~/.rtorrent.rc correctly.
         sudo tee "${RTORRENT_SERVICE}" > /dev/null << RTSERVICE
 [Unit]
 Description=rtorrent daemon
@@ -239,20 +242,22 @@ After=network.target
 
 [Service]
 User=${CURRENT_USER}
-Type=forking
-ExecStart=/usr/bin/screen -dmS rtorrent /usr/bin/rtorrent
-ExecStop=/usr/bin/screen -S rtorrent -X quit
+WorkingDirectory=${HOME}
+Type=simple
+ExecStart=/usr/bin/rtorrent
+ExecStop=/bin/kill -TERM \$MAINPID
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 RTSERVICE
         sudo systemctl daemon-reload
         sudo systemctl enable rtorrent.service
-        sudo systemctl start  rtorrent.service || warn "Could not start rtorrent service – start it manually with: sudo systemctl start rtorrent"
+        sudo systemctl start rtorrent.service || warn "Could not start rtorrent.service – start it manually with: sudo systemctl start rtorrent.service"
         success "rtorrent systemd service installed and enabled."
     else
-        warn "systemctl not available. Start rtorrent manually: screen -dmS rtorrent rtorrent"
+        warn "systemctl not available. Start rtorrent manually: rtorrent &"
     fi
 
     # Inject rtorrent client entry into config.py if the placeholder is present

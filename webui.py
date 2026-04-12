@@ -159,6 +159,7 @@ def _run_job(job_id):
 
     log.info("Command: %s", " ".join(cmd))
     accumulated_log = ""
+    line_count = 0
 
     try:
         proc = subprocess.Popen(
@@ -170,8 +171,9 @@ def _run_job(job_id):
         )
         for line in iter(proc.stdout.readline, ""):
             accumulated_log += line
+            line_count += 1
             # Flush log to disk every 20 lines so the UI can tail it
-            if accumulated_log.count("\n") % 20 == 0:
+            if line_count % 20 == 0:
                 _update_job(job_id, log=accumulated_log)
         proc.wait()
         status = "completed" if proc.returncode == 0 else "failed"
