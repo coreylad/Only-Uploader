@@ -426,7 +426,7 @@ class CrossSeedDownloader:
         """Return an xmlrpc.client.Server proxy for *rtorrent_url*."""
         return xmlrpc.client.Server(
             rtorrent_url,
-            context=ssl._create_stdlib_context()
+            context=ssl.create_default_context()
         )
 
     def _rtorrent_load_start(self, rtorrent_url, torrent_file, download_dir, label=None):

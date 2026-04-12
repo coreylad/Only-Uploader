@@ -20,11 +20,12 @@ import sys
 import json
 import uuid
 import queue
+import shlex
 import logging
 import argparse
 import threading
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import (
     Flask,
@@ -125,7 +126,7 @@ def _run_job(job_id):
         log.error("Job %s not found", job_id)
         return
 
-    _update_job(job_id, status="running", started=datetime.utcnow().isoformat())
+    _update_job(job_id, status="running", started=datetime.now(timezone.utc).isoformat())
     log.info("Starting job %s: %s", job_id, job["path"])
 
     # Build the command
@@ -143,13 +144,18 @@ def _run_job(job_id):
     if job.get("debug"):
         cmd.append("--debug")
 
-    # Append any extra free-form args that were submitted via the form
+    # Append any extra free-form args that were submitted via the form.
+    # Use shlex.split() to correctly handle quoted strings / paths with spaces.
     extra = job.get("extra_args", "").strip()
     if extra:
-        cmd += extra.split()
+        cmd += shlex.split(extra)
 
-    # Always run unattended from the Web UI
-    cmd.append("--unattended")
+    # Always run unattended from the Web UI (the form checkbox controls this
+    # only when the user explicitly wants to override it; the flag is safe to
+    # pass once even if the extra_args already contain it because argparse
+    # treats store_true idempotently).
+    if "--unattended" not in cmd:
+        cmd.append("--unattended")
 
     log.info("Command: %s", " ".join(cmd))
     accumulated_log = ""
@@ -176,7 +182,7 @@ def _run_job(job_id):
     _update_job(
         job_id,
         status=status,
-        finished=datetime.utcnow().isoformat(),
+        finished=datetime.now(timezone.utc).isoformat(),
         log=accumulated_log,
     )
     log.info("Job %s finished with status: %s", job_id, status)
@@ -289,10 +295,10 @@ def upload_submit():
 
     if request.form.get("anon"):
         extra_parts.append("--anon")
-    if request.form.get("unattended"):
-        extra_parts.append("--unattended")
+    # --unattended is appended automatically by _run_job; the checkbox here
+    # is a no-op kept only for UI clarity (store_true is idempotent).
 
-    extra_args = " ".join(extra_parts)
+    extra_args = " ".join(shlex.quote(p) for p in extra_parts)
 
     job_id = _create_job(
         path=path,
