@@ -1,0 +1,136 @@
+{% extends "webui/base.html" %}
+{% block title %}Submit Upload – Only-Uploader{% endblock %}
+{% block content %}
+<h1>Submit Upload</h1>
+
+<div class="card">
+    <form method="POST" action="{{ url_for('upload_submit') }}">
+        <div class="form-group">
+            <label>Content Path <span style="color:#f85149">*</span></label>
+            <input type="text" name="path" placeholder="/data/movies/My.Movie.2024.1080p.BluRay" required>
+        </div>
+
+        <div class="form-group">
+            <label>Target Trackers (comma-separated)</label>
+            <input type="text" name="trackers" placeholder="BLU, AITHER, OE" value="{{ default_trackers }}">
+            <small style="color:#8b949e">Leave blank to use defaults from config</small>
+        </div>
+
+        <hr style="border-color:#30363d;margin:20px 0">
+        <h2 style="margin-bottom:16px">Cross-Seed (optional)</h2>
+        <p style="color:#8b949e;font-size:0.875rem;margin-bottom:16px">
+            Download metadata from a supported source tracker to pre-populate
+            title, IDs, category and other fields before uploading.
+        </p>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Source Tracker</label>
+                <select name="download_from">
+                    <option value="">— none —</option>
+                    {% for t in supported_sources %}
+                        <option value="{{ t }}">{{ t }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Torrent ID on Source Tracker</label>
+                <input type="text" name="source_id" placeholder="12345">
+            </div>
+        </div>
+
+        <hr style="border-color:#30363d;margin:20px 0">
+        <h2 style="margin-bottom:16px">Overrides (optional)</h2>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Category</label>
+                <select name="category">
+                    <option value="">— auto —</option>
+                    <option>movie</option>
+                    <option>tv</option>
+                    <option>fanres</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select name="manual_type">
+                    <option value="">— auto —</option>
+                    <option>disc</option>
+                    <option>remux</option>
+                    <option>encode</option>
+                    <option>webdl</option>
+                    <option>webrip</option>
+                    <option>hdtv</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Resolution</label>
+                <select name="resolution">
+                    <option value="">— auto —</option>
+                    <option>2160p</option>
+                    <option>1080p</option>
+                    <option>1080i</option>
+                    <option>720p</option>
+                    <option>576p</option>
+                    <option>480p</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>TMDb ID</label>
+                <input type="text" name="tmdb" placeholder="movie/12345 or tv/67890">
+            </div>
+            <div class="form-group">
+                <label>IMDb ID</label>
+                <input type="text" name="imdb" placeholder="tt1234567">
+            </div>
+            <div class="form-group">
+                <label>Edition / Repack</label>
+                <input type="text" name="manual_edition" placeholder="Director's Cut">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Number of Screenshots</label>
+                <input type="number" name="screens" placeholder="{{ default_screens }}" min="1" max="30">
+            </div>
+            <div class="form-group">
+                <label>Group Tag</label>
+                <input type="text" name="tag" placeholder="GroupName">
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group" style="flex:0 0 auto">
+                <label>&nbsp;</label>
+                <label style="display:flex;align-items:center;gap:8px;color:#c9d1d9;cursor:pointer">
+                    <input type="checkbox" name="anon"> Anonymous upload
+                </label>
+            </div>
+            <div class="form-group" style="flex:0 0 auto">
+                <label>&nbsp;</label>
+                <label style="display:flex;align-items:center;gap:8px;color:#c9d1d9;cursor:pointer">
+                    <input type="checkbox" name="debug"> Debug mode (no upload)
+                </label>
+            </div>
+            <div class="form-group" style="flex:0 0 auto">
+                <label>&nbsp;</label>
+                <label style="display:flex;align-items:center;gap:8px;color:#8b949e;cursor:default" title="Web UI jobs always run unattended">
+                    <input type="checkbox" disabled checked> Unattended (always on in Web UI)
+                </label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Custom Description</label>
+            <textarea name="desc" rows="4" placeholder="Optional BBCode description…"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Submit Upload Job</button>
+    </form>
+</div>
+{% endblock %}

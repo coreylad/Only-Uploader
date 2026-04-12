@@ -1,0 +1,63 @@
+{% extends "webui/base.html" %}
+{% block title %}Config – Only-Uploader{% endblock %}
+{% block content %}
+<h1>Configuration</h1>
+
+<div class="card">
+    <p style="color:#8b949e;font-size:0.875rem;margin-bottom:16px">
+        Edit <code>data/config.py</code> directly. Only the plain-text content is
+        shown below; Python syntax is preserved on save.
+        <strong style="color:#d29922">Restart the Web UI after saving.</strong>
+    </p>
+    <form method="POST" action="{{ url_for('config_save') }}">
+        <div class="form-group">
+            <textarea name="config_content" rows="40" style="font-family:monospace;font-size:0.8rem">{{ config_content }}</textarea>
+        </div>
+        <div style="display:flex;gap:12px">
+            <button type="submit" class="btn btn-primary">Save Config</button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>rtorrent / ruTorrent Client Quick-Reference</h2>
+    <p style="color:#8b949e;font-size:0.875rem;margin-bottom:12px">
+        Add a block like this to the <code>TORRENT_CLIENTS</code> section of your
+        config to enable rtorrent as a download <em>and</em> upload client.
+        The <code>download_dir</code> key is used by the cross-seed feature to tell
+        rtorrent where to save content downloaded from source trackers.
+    </p>
+    <pre>
+"rtorrent_main": {
+    "torrent_client": "rtorrent",
+    # XML-RPC endpoint – ruTorrent sets this up automatically.
+    # Typical values:
+    #   http://user:pass@localhost/RPC2          (local ruTorrent)
+    #   https://user:pass@host.tld/rutorrent/plugins/httprpc/action.php
+    "rtorrent_url": "http://user:pass@localhost/RPC2",
+
+    # Where downloaded content from source-tracker cross-seeding is saved.
+    # Must be accessible to both Only-Uploader and rtorrent.
+    "download_dir": "/data/downloads/cross-seed",
+
+    # Optional: path to rtorrent's session .torrent files (enables hash reuse).
+    # "torrent_storage_dir": "/home/rtorrent/.session",
+
+    # Optional label applied to every torrent added via this tool.
+    # "rtorrent_label": "only-uploader",
+
+    # Remote path mapping when running in Docker / on a remote host.
+    # "local_path":  "/LocalPath",
+    # "remote_path": "/RemotePath",
+},
+    </pre>
+
+    <p style="color:#8b949e;font-size:0.875rem;margin-top:12px">
+        To use this client as the default set
+        <code>"default_torrent_client": "rtorrent_main"</code> in the
+        <code>DEFAULT</code> section, or pass <code>--client rtorrent_main</code>
+        on the command line / in the upload form.
+    </p>
+</div>
+{% endblock %}

@@ -99,6 +99,16 @@ class Args():
         parser.add_argument('-cleanup', '--cleanup', action='store_true', required=False, help="Clean up tmp directory")
         parser.add_argument('-fl', '--freeleech', nargs='*', required=False, help="Freeleech Percentage", default=0, dest="freeleech")
         parser.add_argument('--infohash', nargs='*', required=False, help="V1 Info Hash")
+        parser.add_argument(
+            '--download-from', dest='download_from', nargs='?', required=False, default=None,
+            help="Source tracker abbreviation to download metadata from before uploading "
+                 "(e.g. --download-from AITHER).  Requires --source-id."
+        )
+        parser.add_argument(
+            '--source-id', dest='source_id', nargs='?', required=False, default=None,
+            help="Torrent ID on the source tracker specified with --download-from "
+                 "(e.g. --source-id 12345)."
+        )
         args, before_args = parser.parse_known_args(input)
         args = vars(args)
         # console.print(args)
