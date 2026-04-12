@@ -541,56 +541,8 @@ async def do_the_thing(base_dir):
         trackers = [s.strip().upper() for s in trackers]
         if meta.get('manual', False):
             trackers.insert(0, "MANUAL")
-        ####################################
-        #######  Upload to Trackers  #######  # noqa #F266
-        ####################################
-        common = COMMON(config=config)
-        api_trackers = [
-            'ACM', 'AITHER', 'AL', 'BHD', 'BLU', 'CBR', 'FNP', 'HUNO', 'JPTV', 'LCD', 'LST', 'LT',
-            'OE', 'OTW', 'PSS', 'RF', 'R4E', 'SHRI', 'TIK', 'ULCX', 'UTP', 'YOINK', 'PTT', 'YUS', 'SP', 'LUME', 'STC', 'HHD', 'DP'
-        ]
-        other_api_trackers = [
-            'ANT', 'BHDTV', 'NBL', 'RTF', 'SN', 'SPD', 'TL', 'TVC'
-        ]
-        http_trackers = [
-            'FL', 'HDB', 'HDT', 'MTV', 'PTER', 'TTG'
-        ]
-        tracker_class_map = {
-            'ACM': ACM, 'AITHER': AITHER, 'AL': AL, 'ANT': ANT, 'BHD': BHD, 'BHDTV': BHDTV, 'BLU': BLU, 'CBR': CBR,
-            'FNP': FNP, 'FL': FL, 'HDB': HDB, 'HDT': HDT, 'HP': HP, 'HUNO': HUNO, 'JPTV': JPTV, 'LCD': LCD,
-            'LST': LST, 'LT': LT, 'MTV': MTV, 'NBL': NBL, 'OE': OE, 'OTW': OTW, 'PSS': PSS, 'PTP': PTP, 'PTER': PTER,
-            'R4E': R4E, 'RF': RF, 'RTF': RTF, 'SHRI': SHRI, 'SN': SN, 'SPD': SPD, 'THR': THR,
-            'TIK': TIK, 'TL': TL, 'TVC': TVC, 'TTG': TTG, 'ULCX': ULCX, 'UTP': UTP, 'YOINK': YOINK, 'YUS': YUS, 'SP': SP, 'PTT': PTT, 'LUME': LUME, 'STC': STC,
-            'HHD': HHD, 'DP': DP,
-        }
 
-        tracker_capabilities = {
-            'AITHER': {'mod_q': True, 'draft': False},
-            'BHD': {'draft_live': True},
-            'BLU': {'mod_q': True, 'draft': False},
-            'LST': {'mod_q': True, 'draft': True}
-        }
-
-        async def check_mod_q_and_draft(tracker_class, meta, debug, disctype):
-            modq, draft = None, None
-
-            tracker_caps = tracker_capabilities.get(tracker_class.tracker, {})
-
-            # Handle BHD specific draft/live logic
-            if tracker_class.tracker == 'BHD' and tracker_caps.get('draft_live'):
-                draft_int = await tracker_class.get_live(meta)
-                draft = "Draft" if draft_int == 0 else "Live"
-
-            # Handle mod_q and draft for other trackers
-            else:
-                if tracker_caps.get('mod_q'):
-                    modq = await tracker_class.get_flag(meta, 'modq')
-                    modq = 'Yes' if modq else 'No'
-                if tracker_caps.get('draft'):
-                    draft = await tracker_class.get_flag(meta, 'draft')
-                    draft = 'Yes' if draft else 'No'
-
-            return modq, draft
+        await _upload_to_trackers(meta, prep, trackers)
 
         for tracker in trackers:
             disctype = meta.get('disctype', None)
